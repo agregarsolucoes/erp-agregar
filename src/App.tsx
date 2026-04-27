@@ -905,45 +905,46 @@ function PedidoCompra({ data }) {
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Montserrat', Arial, sans-serif; font-size: 12px; color: #333; background: #fff; position: relative; }
-  .page { padding: 32px 40px; max-width: 900px; margin: 0 auto; position: relative; z-index: 1; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #E0A85A; margin-bottom: 20px; }
+  body { font-family: 'Montserrat', Arial, sans-serif; font-size: 14px; color: #333; background: #fff; position: relative; }
+  .page { padding: 18mm 16mm; width: 210mm; min-height: 297mm; margin: 0 auto; position: relative; z-index: 1; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; border-bottom: 3px solid #E0A85A; margin-bottom: 18px; }
   .logo-area { display: flex; align-items: center; gap: 14px; }
-  .company-name { font-size: 20px; font-weight: 800; color: #2B2F38; letter-spacing: .04em; }
-  .company-sub { font-size: 9px; color: #888; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; margin-top: 3px; }
-  .company-info { font-size: 10px; color: #666; margin-top: 8px; line-height: 1.6; }
+  .company-name { font-size: 24px; font-weight: 800; color: #2B2F38; letter-spacing: .04em; }
+  .company-sub { font-size: 11px; color: #888; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; margin-top: 3px; }
+  .company-info { font-size: 12px; color: #666; margin-top: 8px; line-height: 1.7; }
   .pedido-box { text-align: right; }
-  .pedido-num { font-size: 22px; font-weight: 800; color: #2B2F38; font-family: monospace; }
-  .pedido-label { font-size: 9px; color: #E0A85A; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; margin-bottom: 4px; }
-  .pedido-data { font-size: 11px; color: #888; margin-top: 4px; }
-  .status-badge { display:inline-block; background:#E0A85A; color:#2B2F38; font-size:9px; font-weight:800; padding:3px 10px; border-radius:20px; letter-spacing:.08em; margin-top:6px; }
-  .section-title { font-size: 9px; font-weight: 700; color: #E0A85A; text-transform: uppercase; letter-spacing: .15em; margin-bottom: 8px; margin-top: 18px; display: flex; align-items: center; gap: 8px; }
+  .pedido-num { font-size: 26px; font-weight: 800; color: #2B2F38; font-family: monospace; }
+  .pedido-label { font-size: 11px; color: #E0A85A; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; margin-bottom: 4px; }
+  .pedido-data { font-size: 12px; color: #888; margin-top: 4px; }
+  .status-badge { display:inline-block; background:#E0A85A; color:#2B2F38; font-size:11px; font-weight:800; padding:4px 12px; border-radius:20px; letter-spacing:.08em; margin-top:6px; }
+  .section-title { font-size: 11px; font-weight: 700; color: #E0A85A; text-transform: uppercase; letter-spacing: .15em; margin-bottom: 10px; margin-top: 20px; display: flex; align-items: center; gap: 8px; }
   .section-title::after { content: ""; flex: 1; height: 1px; background: #e8e4dc; }
-  .forn-box { background: #f9f7f4; border: 1px solid #e8e4dc; border-left: 4px solid #E0A85A; border-radius: 6px; padding: 12px 16px; display: grid; grid-template-columns: 2fr 1fr 2fr 1fr; gap: 12px; }
-  .forn-field label { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 3px; }
-  .forn-field span { font-size: 12px; font-weight: 600; color: #2B2F38; }
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .forn-box { background: #f9f7f4; border: 1px solid #e8e4dc; border-left: 4px solid #E0A85A; border-radius: 6px; padding: 14px 18px; display: grid; grid-template-columns: 2fr 1fr 2fr 1fr; gap: 14px; }
+  .forn-field label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 4px; }
+  .forn-field span { font-size: 13px; font-weight: 600; color: #2B2F38; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   thead tr { background: #2B2F38; }
-  thead th { color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; padding: 9px 10px; text-align: left; }
-  tbody td { padding: 9px 10px; border-bottom: 1px solid #f0ece4; font-size: 12px; }
+  thead th { color: #fff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 11px 12px; text-align: left; }
+  tbody td { padding: 11px 12px; border-bottom: 1px solid #f0ece4; font-size: 13px; }
   tfoot tr { background: #2B2F38; }
-  tfoot td { padding: 11px 10px; color: #fff; font-weight: 700; }
-  .total-val { font-size: 16px; font-family: monospace; color: #E0A85A; }
-  .conditions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
-  .condition-box { background: #f9f7f4; border: 1px solid #e8e4dc; border-radius: 6px; padding: 10px 14px; }
-  .condition-box label { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 4px; }
-  .condition-box span { font-size: 12px; font-weight: 600; color: #2B2F38; }
-  .signatures { display: flex; gap: 40px; margin-top: 50px; }
-  .sig-line { flex: 1; border-top: 1.5px solid #ccc; padding-top: 8px; text-align: center; font-size: 10px; color: #888; }
-  .sig-name { font-size: 11px; font-weight: 600; color: #2B2F38; margin-bottom: 2px; }
+  tfoot td { padding: 13px 12px; color: #fff; font-weight: 700; font-size: 14px; }
+  .total-val { font-size: 18px; font-family: monospace; color: #E0A85A; }
+  .conditions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 16px; }
+  .condition-box { background: #f9f7f4; border: 1px solid #e8e4dc; border-radius: 6px; padding: 12px 16px; }
+  .condition-box label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 5px; }
+  .condition-box span { font-size: 14px; font-weight: 600; color: #2B2F38; }
+  .signatures { display: flex; gap: 40px; margin-top: 60px; }
+  .sig-line { flex: 1; border-top: 1.5px solid #ccc; padding-top: 10px; text-align: center; font-size: 12px; color: #888; }
+  .sig-name { font-size: 13px; font-weight: 600; color: #2B2F38; margin-bottom: 3px; }
   .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #e8e4dc; display: flex; justify-content: space-between; align-items: center; }
-  .footer-left { font-size: 10px; color: #999; line-height: 1.6; }
-  .footer-right { font-size: 9px; color: #ccc; text-align: right; }
+  .footer-left { font-size: 11px; color: #999; line-height: 1.7; }
+  .footer-right { font-size: 11px; color: #ccc; text-align: right; }
   .gold { color: #E0A85A; }
   .navy { color: #2B2F38; }
   @media print {
+    @page { size: A4; margin: 0; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { padding: 20px 28px; }
+    .page { padding: 14mm 14mm; }
   }
 </style>
 </head>
