@@ -901,6 +901,7 @@ function PedidoCompra({ data }) {
     w.document.write(`<!DOCTYPE html>
 <html lang="pt-BR"><head>
 <meta charset="UTF-8"/>
+<meta name="viewport" content="width=210mm, initial-scale=1.0"/>
 <title>Pedido ${numPedido} — Agregar Soluções</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
@@ -942,10 +943,11 @@ function PedidoCompra({ data }) {
   .gold { color: #E0A85A; }
   .navy { color: #2B2F38; }
   @media print {
-    @page { size: A4; margin: 0; }
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { padding: 14mm 14mm; }
+    @page { size: A4 portrait; margin: 10mm 12mm; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 1; }
+    .page { padding: 0; width: 100%; }
   }
+  html, body { width: 210mm; }
 </style>
 </head>
 <body>
@@ -1045,7 +1047,11 @@ ${watermarkSVG}
 </div>
 </body></html>`);
     w.document.close();
-    setTimeout(() => w.print(), 800);
+    setTimeout(() => {
+      w.document.body.style.zoom = "100%";
+      w.focus();
+      w.print();
+    }, 900);
   };
 
   return (
@@ -1531,8 +1537,12 @@ function Materiais({ data, setData }) {
 
   const reload = async () => {
     try {
-      const mats = await api.get("materiais","order=codigo");
+      const [mats, est] = await Promise.all([
+        api.get("materiais","order=codigo"),
+        api.get("estoque","order=codigo"),
+      ]);
       if (mats.length) setData(d => ({...d, materiais: mats}));
+      if (est.length)  setData(d => ({...d, estoque: est}));
     } catch {}
   };
 
@@ -1555,10 +1565,47 @@ function Materiais({ data, setData }) {
       };
       if (modal === "new") {
         await api.post("materiais", payload);
+        // Criar registro de estoque automaticamente para o novo material
+        try {
+          await api.post("estoque", {
+            codigo:         payload.codigo,
+            nome:           payload.nome,
+            unidade:        payload.unidade || "",
+            saldo_inicial:  0,
+            entradas:       0,
+            saidas:         0,
+            estoque_minimo: payload.estoque_minimo || 0,
+            valor_unit:     payload.preco_alvo || 0,
+            localizacao:    "",
+          });
+        } catch(estErr) {
+          // Se já existe no estoque, apenas atualiza o mínimo e valor
+          console.warn("Estoque já existia ou erro:", estErr.message);
+        }
       } else {
         await api.patch("materiais", form.id, payload);
+        // Sincronizar nome, unidade e mínimo no estoque
+        try {
+          const estItems = await api.get("estoque", `codigo=eq.${payload.codigo}`);
+          if (estItems && estItems.length > 0) {
+            await api.patch("estoque", estItems[0].id, {
+              nome:           payload.nome,
+              unidade:        payload.unidade || "",
+              estoque_minimo: payload.estoque_minimo || 0,
+              valor_unit:     payload.preco_alvo || 0,
+            });
+          }
+        } catch(estErr) {
+          console.warn("Erro ao sincronizar estoque:", estErr.message);
+        }
       }
-      await reload();
+      // Recarregar materiais e estoque
+      const [mats, est] = await Promise.all([
+        api.get("materiais","order=codigo"),
+        api.get("estoque","order=codigo"),
+      ]);
+      if (mats.length) setData(d => ({...d, materiais: mats}));
+      if (est.length)  setData(d => ({...d, estoque: est}));
       setModal(null);
     } catch(e) {
       setSaveErr(e.message || "Erro ao salvar. Verifique a conexão com o Supabase.");
