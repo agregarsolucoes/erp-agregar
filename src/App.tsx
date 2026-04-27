@@ -686,19 +686,52 @@ function Compras({ data, setData }) {
 
   const openEdit = row => { setForm({ ...row }); setModal(row); };
 
-  const save = () => {
-    const sub = (form.quantidade || 0) * (form.preco_escolhido || 0);
-    const statusAuto = form.data_recebimento ? "Concluído" : "A Emitir";
-    const novo = { ...form, subtotal: sub, status: statusAuto, id: form.id || Date.now() };
-    if (modal === "new") {
-      setData(d => ({ ...d, compras: [...d.compras, novo] }));
-    } else {
-      setData(d => ({ ...d, compras: d.compras.map(c => c.id === novo.id ? novo : c) }));
-    }
-    setModal(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  const reload = async () => {
+    try {
+      const compras = await api.get("compras","order=criado_em.desc");
+      if (compras.length) setData(d => ({...d, compras}));
+    } catch {}
   };
 
-  const del = id => setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
+  const save = async () => {
+    setSaving(true); setSaveErr("");
+    try {
+      const sub = (parseFloat(form.quantidade)||0) * (parseFloat(form.preco_escolhido)||0);
+      const statusAuto = form.data_recebimento ? "Concluído" : "A Emitir";
+      const payload = {
+        codigo_material:      form.codigo_material || "",
+        material:             form.material || "",
+        quantidade:           parseFloat(form.quantidade) || 0,
+        criterio:             form.criterio || "Menor Preço",
+        fornecedor_escolhido: form.fornecedor_escolhido || "",
+        preco_escolhido:      parseFloat(form.preco_escolhido) || 0,
+        subtotal:             sub,
+        status:               statusAuto,
+        data_recebimento:     form.data_recebimento || null,
+        documento_nf:         form.documento_nf || "",
+      };
+      if (modal === "new") {
+        await api.post("compras", payload);
+      } else {
+        await api.patch("compras", form.id, payload);
+      }
+      await reload();
+      setModal(null);
+    } catch(e) {
+      setSaveErr(e.message || "Erro ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Excluir esta compra?")) return;
+    try { await api.delete("compras", id); await reload(); }
+    catch(e) { alert("Erro: " + e.message); }
+  };
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -786,9 +819,10 @@ function Compras({ data, setData }) {
               <span style={{ fontWeight:700, fontSize:18, fontFamily:"'IBM Plex Mono',monospace", color:T.white }}>{fmt_brl(form.quantidade * form.preco_escolhido)}</span>
             </div>
           )}
+          {saveErr && <div style={{ color:T.red, fontSize:12, marginTop:10, background:"rgba(224,90,90,.1)", padding:"8px 12px", borderRadius:6 }}>{saveErr}</div>}
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:20 }}>
             <button className="btn-ghost" onClick={() => setModal(null)}>Cancelar</button>
-            <button className="btn-primary" onClick={save}>Salvar</button>
+            <button className="btn-primary" onClick={save} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
           </div>
         </Modal>
       )}
@@ -801,41 +835,216 @@ function Compras({ data, setData }) {
 // ══════════════════════════════════════════════════════════════════════════════
 function PedidoCompra({ data }) {
   const [fornCod, setFornCod] = useState("");
-  const [itens, setItens]     = useState([{ cod:"", desc:"", qtd:"", preco:"" }]);
+  const [itens, setItens]     = useState([{ cod:"", desc:"", spec:"", und:"", qtd:"", preco:"", preco_alvo:0 }]);
 
   const forn = data.fornecedores.find(f => f.codigo === fornCod.toUpperCase());
   const total = itens.reduce((s, i) => s + (parseFloat(i.qtd)||0) * (parseFloat(i.preco)||0), 0);
   const numPedido = `${new Date().getFullYear()}-PC-${String(Date.now()).slice(-4)}`;
 
-  const addLinha = () => setItens(p => [...p, { cod:"", desc:"", qtd:"", preco:"" }]);
-  const setItem = (i, k, v) => setItens(p => p.map((x, j) => j===i ? {...x,[k]:v} : x));
+  const addLinha = () => setItens(p => [...p, { cod:"", desc:"", spec:"", und:"", qtd:"", preco:"", preco_alvo:0 }]);
   const delItem = i => setItens(p => p.filter((_, j) => j!==i));
+
+  // Quando usuário digita o código — busca automática no cadastro de materiais
+  const setCod = (i, cod) => {
+    const codUp = cod.toUpperCase();
+    const mat = data.materiais.find(m => m.codigo === codUp);
+    setItens(p => p.map((x, j) => j !== i ? x : {
+      ...x,
+      cod:        codUp,
+      desc:       mat ? mat.nome          : x.desc,
+      spec:       mat ? mat.especificacao : x.spec,
+      und:        mat ? mat.unidade       : x.und,
+      preco:      mat && mat.preco_alvo > 0 ? String(mat.preco_alvo) : x.preco,
+      preco_alvo: mat ? (mat.preco_alvo || 0) : 0,
+    }));
+  };
+
+  const setItem = (i, k, v) => setItens(p => p.map((x, j) => j===i ? {...x,[k]:v} : x));
 
   const print = () => {
     const w = window.open("", "_blank");
-    const rows = itens.filter(i => i.cod || i.desc).map((i, idx) =>
-      `<tr><td>${idx+1}</td><td>${i.cod}</td><td>${i.desc}</td><td style="text-align:center">${i.qtd}</td><td style="text-align:right">R$ ${parseFloat(i.preco||0).toFixed(2)}</td><td style="text-align:right">R$ ${((parseFloat(i.qtd)||0)*(parseFloat(i.preco)||0)).toFixed(2)}</td></tr>`
-    ).join("");
-    w.document.write(`<!DOCTYPE html><html><head><title>Pedido ${numPedido}</title>
-    <style>body{font-family:Arial;font-size:13px;padding:30px;color:#222}h1{font-size:18px;margin-bottom:4px}
-    table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px}
-    th{background:#1B3A6B;color:#fff}.total{text-align:right;font-weight:bold;font-size:16px;margin-top:20px}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1B3A6B;padding-bottom:12px;margin-bottom:16px}
-    .info{font-size:12px;color:#555;margin-top:4px}
-    </style></head><body>
-    <div class="hdr"><div><h1>⚙ AGREGAR SOLUÇÕES ENGENHARIA</h1><div class="info">PEDIDO DE COMPRA</div></div>
-    <div style="text-align:right"><div style="font-size:18px;font-weight:bold">${numPedido}</div>
-    <div class="info">${new Date().toLocaleDateString("pt-BR")}</div></div></div>
-    <table><tr><th style="text-align:left">FORNECEDOR</th><th style="text-align:left">CONTATO</th><th style="text-align:left">E-MAIL</th><th style="text-align:left">CIDADE/UF</th></tr>
-    <tr><td>${forn?.razao_social||fornCod||"—"}</td><td>${forn?.contato||"—"}</td><td>${forn?.email||"—"}</td><td>${forn?.cidade_uf||"—"}</td></tr></table>
-    <table><tr><th>#</th><th>Código</th><th>Descrição</th><th style="text-align:center">Qtd.</th><th style="text-align:right">Preço Unit.</th><th style="text-align:right">Subtotal</th></tr>
-    ${rows}</table>
-    <div class="total">TOTAL GERAL: R$ ${total.toFixed(2)}</div>
-    <div style="margin-top:60px;display:flex;gap:80px"><div style="border-top:1px solid #999;padding-top:8px;width:200px;text-align:center;font-size:12px">Solicitante</div>
-    <div style="border-top:1px solid #999;padding-top:8px;width:200px;text-align:center;font-size:12px">Aprovação</div>
-    <div style="border-top:1px solid #999;padding-top:8px;width:200px;text-align:center;font-size:12px">Fornecedor</div></div>
-    </body></html>`);
-    w.document.close(); w.print();
+    const itensFiltrados = itens.filter(i => i.cod || i.desc);
+    const dataEmissao = new Date().toLocaleDateString("pt-BR", {day:"2-digit",month:"long",year:"numeric"});
+    const dataValidade = new Date(Date.now() + 30*24*60*60*1000).toLocaleDateString("pt-BR");
+    const horaEmissao = new Date().toLocaleTimeString("pt-BR", {hour:"2-digit",minute:"2-digit"});
+
+    const logoSVG = `<svg width="70" height="70" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="30" stroke="#CCCCCC" stroke-width="3" fill="none" opacity="0.4"/>
+      <polygon points="50,15 85,78 15,78" fill="none" stroke="#E0A85A" stroke-width="4" stroke-linejoin="round"/>
+      <polygon points="50,15 85,78 15,78" fill="#E0A85A" opacity="0.1"/>
+      <line x1="50" y1="15" x2="50" y2="78" stroke="#E0A85A" stroke-width="2" opacity="0.6"/>
+      <line x1="32" y1="52" x2="68" y2="52" stroke="#E0A85A" stroke-width="2" opacity="0.6"/>
+      <line x1="41" y1="65" x2="59" y2="65" stroke="#E0A85A" stroke-width="1.5" opacity="0.5"/>
+    </svg>`;
+
+    const watermarkSVG = `<svg style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);opacity:0.04;pointer-events:none;z-index:0" width="500" height="500" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="50,5 95,90 5,90" fill="#E0A85A" stroke="#E0A85A" stroke-width="1"/>
+      <line x1="50" y1="5" x2="50" y2="90" stroke="#E0A85A" stroke-width="0.5"/>
+      <line x1="27" y1="47" x2="73" y2="47" stroke="#E0A85A" stroke-width="0.5"/>
+      <text x="50" y="108" text-anchor="middle" fill="#E0A85A" font-size="8" font-family="Arial" font-weight="bold" letter-spacing="4">AGREGAR</text>
+    </svg>`;
+
+    const rows = itensFiltrados.map((i, idx) => {
+      const sub = (parseFloat(i.qtd)||0)*(parseFloat(i.preco)||0);
+      const rowBg = idx % 2 === 0 ? "#fff" : "#f9f7f4";
+      return `<tr style="background:${rowBg}">
+        <td style="text-align:center;color:#888;font-size:11px">${idx+1}</td>
+        <td style="font-family:monospace;font-weight:bold;color:#2B2F38;font-size:12px">${i.cod||"—"}</td>
+        <td><span style="font-weight:600;color:#1a1a1a">${i.desc||"—"}</span>${i.spec ? `<br><span style="font-size:10px;color:#888">${i.spec}</span>` : ""}</td>
+        <td style="text-align:center;color:#555">${i.und||"—"}</td>
+        <td style="text-align:center;font-weight:600">${i.qtd||"—"}</td>
+        <td style="text-align:right;font-family:monospace">R$ ${parseFloat(i.preco||0).toFixed(2)}</td>
+        <td style="text-align:right;font-family:monospace;font-weight:700;color:#2B2F38">R$ ${sub.toFixed(2)}</td>
+      </tr>`;
+    }).join("");
+
+    w.document.write(`<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="UTF-8"/>
+<title>Pedido ${numPedido} — Agregar Soluções</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Montserrat', Arial, sans-serif; font-size: 12px; color: #333; background: #fff; position: relative; }
+  .page { padding: 32px 40px; max-width: 900px; margin: 0 auto; position: relative; z-index: 1; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #E0A85A; margin-bottom: 20px; }
+  .logo-area { display: flex; align-items: center; gap: 14px; }
+  .company-name { font-size: 20px; font-weight: 800; color: #2B2F38; letter-spacing: .04em; }
+  .company-sub { font-size: 9px; color: #888; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; margin-top: 3px; }
+  .company-info { font-size: 10px; color: #666; margin-top: 8px; line-height: 1.6; }
+  .pedido-box { text-align: right; }
+  .pedido-num { font-size: 22px; font-weight: 800; color: #2B2F38; font-family: monospace; }
+  .pedido-label { font-size: 9px; color: #E0A85A; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; margin-bottom: 4px; }
+  .pedido-data { font-size: 11px; color: #888; margin-top: 4px; }
+  .status-badge { display:inline-block; background:#E0A85A; color:#2B2F38; font-size:9px; font-weight:800; padding:3px 10px; border-radius:20px; letter-spacing:.08em; margin-top:6px; }
+  .section-title { font-size: 9px; font-weight: 700; color: #E0A85A; text-transform: uppercase; letter-spacing: .15em; margin-bottom: 8px; margin-top: 18px; display: flex; align-items: center; gap: 8px; }
+  .section-title::after { content: ""; flex: 1; height: 1px; background: #e8e4dc; }
+  .forn-box { background: #f9f7f4; border: 1px solid #e8e4dc; border-left: 4px solid #E0A85A; border-radius: 6px; padding: 12px 16px; display: grid; grid-template-columns: 2fr 1fr 2fr 1fr; gap: 12px; }
+  .forn-field label { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 3px; }
+  .forn-field span { font-size: 12px; font-weight: 600; color: #2B2F38; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  thead tr { background: #2B2F38; }
+  thead th { color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; padding: 9px 10px; text-align: left; }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid #f0ece4; font-size: 12px; }
+  tfoot tr { background: #2B2F38; }
+  tfoot td { padding: 11px 10px; color: #fff; font-weight: 700; }
+  .total-val { font-size: 16px; font-family: monospace; color: #E0A85A; }
+  .conditions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .condition-box { background: #f9f7f4; border: 1px solid #e8e4dc; border-radius: 6px; padding: 10px 14px; }
+  .condition-box label { font-size: 9px; color: #999; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 4px; }
+  .condition-box span { font-size: 12px; font-weight: 600; color: #2B2F38; }
+  .signatures { display: flex; gap: 40px; margin-top: 50px; }
+  .sig-line { flex: 1; border-top: 1.5px solid #ccc; padding-top: 8px; text-align: center; font-size: 10px; color: #888; }
+  .sig-name { font-size: 11px; font-weight: 600; color: #2B2F38; margin-bottom: 2px; }
+  .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #e8e4dc; display: flex; justify-content: space-between; align-items: center; }
+  .footer-left { font-size: 10px; color: #999; line-height: 1.6; }
+  .footer-right { font-size: 9px; color: #ccc; text-align: right; }
+  .gold { color: #E0A85A; }
+  .navy { color: #2B2F38; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { padding: 20px 28px; }
+  }
+</style>
+</head>
+<body>
+${watermarkSVG}
+<div class="page">
+
+  <!-- CABEÇALHO -->
+  <div class="header">
+    <div class="logo-area">
+      ${logoSVG}
+      <div>
+        <div class="company-name">AGREGAR</div>
+        <div class="company-sub">Soluções Engenharia</div>
+        <div class="company-info">
+          CNPJ: 12.247.899/0001-20<br>
+          Razão Social: Agregar Soluções Engenharia Ltda
+        </div>
+      </div>
+    </div>
+    <div class="pedido-box">
+      <div class="pedido-label">Pedido de Compra</div>
+      <div class="pedido-num">${numPedido}</div>
+      <div class="pedido-data">Emitido em ${dataEmissao} às ${horaEmissao}</div>
+      <div class="status-badge">ABERTO</div>
+    </div>
+  </div>
+
+  <!-- FORNECEDOR -->
+  <div class="section-title">Dados do Fornecedor</div>
+  <div class="forn-box">
+    <div class="forn-field"><label>Razão Social</label><span>${forn?.razao_social || fornCod || "—"}</span></div>
+    <div class="forn-field"><label>CNPJ</label><span>${forn?.cnpj || "—"}</span></div>
+    <div class="forn-field"><label>E-mail</label><span>${forn?.email || "—"}</span></div>
+    <div class="forn-field"><label>Telefone</label><span>${forn?.telefone || "—"}</span></div>
+    <div class="forn-field"><label>Contato</label><span>${forn?.contato || "—"}</span></div>
+    <div class="forn-field"><label>Cidade / UF</label><span>${forn?.cidade_uf || "—"}</span></div>
+  </div>
+
+  <!-- CONDIÇÕES -->
+  <div class="section-title">Condições Comerciais</div>
+  <div class="conditions">
+    <div class="condition-box"><label>Validade da Cotação</label><span>${dataValidade}</span></div>
+    <div class="condition-box"><label>Prazo de Entrega</label><span>${forn?.prazo_medio ? forn.prazo_medio + " dias" : "A definir"}</span></div>
+    <div class="condition-box"><label>Condição de Pagamento</label><span>A definir</span></div>
+  </div>
+
+  <!-- ITENS -->
+  <div class="section-title">Itens do Pedido</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30px;text-align:center">#</th>
+        <th style="width:90px">Código</th>
+        <th>Descrição / Especificação</th>
+        <th style="width:50px;text-align:center">Un.</th>
+        <th style="width:70px;text-align:center">Qtd.</th>
+        <th style="width:110px;text-align:right">Preço Unit.</th>
+        <th style="width:110px;text-align:right">Subtotal</th>
+      </tr>
+    </thead>
+    <tbody>${rows.length ? rows : '<tr><td colspan="7" style="text-align:center;color:#999;padding:20px">Nenhum item informado</td></tr>'}</tbody>
+    <tfoot>
+      <tr>
+        <td colspan="5" style="text-align:right;font-size:11px;letter-spacing:.05em">TOTAL GERAL DO PEDIDO</td>
+        <td></td>
+        <td style="text-align:right" class="total-val">R$ ${total.toFixed(2)}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- OBSERVAÇÕES -->
+  <div class="section-title">Observações</div>
+  <div style="background:#f9f7f4;border:1px solid #e8e4dc;border-radius:6px;padding:12px 16px;min-height:50px;font-size:11px;color:#666;line-height:1.6">
+    Este pedido de compra está sujeito à aprovação interna. Favor confirmar disponibilidade e prazo de entrega antes do faturamento.
+  </div>
+
+  <!-- ASSINATURAS -->
+  <div class="signatures">
+    <div class="sig-line"><div class="sig-name">Solicitante</div>Nome / Data</div>
+    <div class="sig-line"><div class="sig-name">Aprovação Gerencial</div>Nome / Data</div>
+    <div class="sig-line"><div class="sig-name">Fornecedor</div>Nome / CNPJ / Carimbo</div>
+  </div>
+
+  <!-- RODAPÉ -->
+  <div class="footer">
+    <div class="footer-left">
+      <strong class="gold">AGREGAR SOLUÇÕES ENGENHARIA LTDA</strong><br>
+      CNPJ: 12.247.899/0001-20 · Documento gerado em ${dataEmissao} às ${horaEmissao}<br>
+      Este documento é válido apenas com assinatura e aprovação das partes.
+    </div>
+    <div class="footer-right">
+      Pedido <strong>${numPedido}</strong><br>
+      Página 1 de 1
+    </div>
+  </div>
+
+</div>
+</body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 800);
   };
 
   return (
@@ -877,19 +1086,76 @@ function PedidoCompra({ data }) {
           <button className="btn-ghost" style={{ fontSize:12 }} onClick={addLinha}>+ Adicionar Linha</button>
         </div>
         <table>
-          <thead><tr><th>#</th><th>Cód. Material</th><th>Descrição</th><th>Qtd.</th><th>Preço Unit. (R$)</th><th>Subtotal</th><th style={{width:40}}/></tr></thead>
+          <thead><tr><th>#</th><th>Cód. Material</th><th>Descrição / Especificação</th><th style={{width:60}}>Un.</th><th>Qtd.</th><th>Preço Unit. (R$)</th><th>Subtotal</th><th style={{width:40}}/></tr></thead>
           <tbody>
-            {itens.map((item, i) => (
-              <tr key={i}>
-                <td style={{ color:T.muted, fontSize:11 }}>{i+1}</td>
-                <td><input value={item.cod} onChange={e=>setItem(i,"cod",e.target.value)} placeholder="MP001" style={{ width:90 }}/></td>
-                <td><input value={item.desc} onChange={e=>setItem(i,"desc",e.target.value)} placeholder="Descrição do material"/></td>
-                <td><input type="number" value={item.qtd} onChange={e=>setItem(i,"qtd",e.target.value)} style={{ width:80 }}/></td>
-                <td><input type="number" step="0.01" value={item.preco} onChange={e=>setItem(i,"preco",e.target.value)} style={{ width:110 }}/></td>
-                <td className="mono" style={{ fontWeight:600 }}>{fmt_brl((parseFloat(item.qtd)||0)*(parseFloat(item.preco)||0))}</td>
-                <td><button className="btn-danger" style={{ padding:"4px 8px", fontSize:11 }} onClick={()=>delItem(i)}>✕</button></td>
-              </tr>
-            ))}
+            {itens.map((item, i) => {
+              const subtotal = (parseFloat(item.qtd)||0) * (parseFloat(item.preco)||0);
+              const economia = item.preco_alvo > 0 ? (item.preco_alvo - parseFloat(item.preco||0)) * (parseFloat(item.qtd)||0) : null;
+              const acimaTeto = item.preco_alvo > 0 && parseFloat(item.preco||0) > item.preco_alvo;
+              return (
+                <tr key={i}>
+                  <td style={{ color:T.muted, fontSize:11 }}>{i+1}</td>
+                  <td>
+                    <input value={item.cod}
+                      onChange={e => setCod(i, e.target.value)}
+                      placeholder="MP001"
+                      style={{ width:90, borderColor: item.cod && item.desc ? T.green : undefined }}
+                    />
+                    {item.cod && !item.desc && (
+                      <div style={{ fontSize:9, color:T.red, marginTop:2 }}>Código não encontrado</div>
+                    )}
+                  </td>
+                  <td>
+                    <input value={item.desc} onChange={e=>setItem(i,"desc",e.target.value)}
+                      placeholder="Descrição do material"
+                      style={{ color: item.desc ? T.green : T.muted }}
+                    />
+                    {item.spec && <div style={{ fontSize:10, color:T.muted, marginTop:2, paddingLeft:2 }}>{item.spec}</div>}
+                  </td>
+                  <td>
+                    <input value={item.und} onChange={e=>setItem(i,"und",e.target.value)}
+                      style={{ width:60, color:T.muted, textAlign:"center" }} placeholder="un"/>
+                  </td>
+                  <td>
+                    <input type="number" value={item.qtd}
+                      onChange={e=>setItem(i,"qtd",e.target.value)}
+                      style={{ width:80 }}/>
+                  </td>
+                  <td>
+                    <div style={{ position:"relative" }}>
+                      <input type="number" step="0.01" value={item.preco}
+                        onChange={e=>setItem(i,"preco",e.target.value)}
+                        style={{ width:120, borderColor: acimaTeto ? T.red : item.preco ? T.green : undefined,
+                          paddingRight: item.preco_alvo > 0 ? 4 : undefined }}
+                      />
+                      {item.preco_alvo > 0 && (
+                        <div style={{ fontSize:9, marginTop:3, display:"flex", alignItems:"center", gap:4 }}>
+                          <span style={{ color:T.muted }}>Alvo:</span>
+                          <span style={{ color:T.gold, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>
+                            {fmt_brl(item.preco_alvo)}
+                          </span>
+                          {acimaTeto && <span style={{ color:T.red }}>⚠ acima</span>}
+                          {!acimaTeto && item.preco && <span style={{ color:T.green }}>✓</span>}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="mono" style={{ fontWeight:700, color: acimaTeto ? T.red : T.white }}>
+                      {fmt_brl(subtotal)}
+                    </div>
+                    {economia !== null && parseFloat(item.qtd) > 0 && (
+                      <div style={{ fontSize:9, color: economia >= 0 ? T.green : T.red, marginTop:2 }}>
+                        {economia >= 0 ? `↓ economia ${fmt_brl(economia)}` : `↑ custo extra ${fmt_brl(Math.abs(economia))}`}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <button className="btn-danger" style={{ padding:"4px 8px", fontSize:11 }} onClick={()=>delItem(i)}>✕</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         <div style={{ display:"flex", justifyContent:"flex-end", padding:"16px 20px", borderTop:`1px solid ${T.border}` }}>
@@ -926,11 +1192,27 @@ function Estoque({ data, setData }) {
   );
 
   const openEdit = row => { setForm({...row}); setModal(row); };
-  const save = () => {
-    setData(d => ({ ...d, estoque: d.estoque.map(e => e.id === form.id
-      ? { ...e, saldo_inicial: parseFloat(form.saldo_inicial)||0, estoque_minimo: parseFloat(form.estoque_minimo)||0, valor_unit: parseFloat(form.valor_unit)||0, localizacao: form.localizacao||"" }
-      : e) }));
-    setModal(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  const save = async () => {
+    setSaving(true); setSaveErr("");
+    try {
+      const payload = {
+        saldo_inicial:  parseFloat(form.saldo_inicial) || 0,
+        estoque_minimo: parseFloat(form.estoque_minimo) || 0,
+        valor_unit:     parseFloat(form.valor_unit) || 0,
+        localizacao:    form.localizacao || "",
+      };
+      await api.patch("estoque", form.id, payload);
+      const est = await api.get("estoque","order=codigo");
+      if (est.length) setData(d => ({...d, estoque: est}));
+      setModal(null);
+    } catch(e) {
+      setSaveErr(e.message || "Erro ao salvar.");
+    } finally {
+      setSaving(false);
+    }
   };
   const f = (k,v) => setForm(p => ({...p,[k]:v}));
 
@@ -1057,9 +1339,10 @@ function Estoque({ data, setData }) {
           <div style={{ fontSize:11, color:T.teal, marginTop:12, background:"rgba(20,184,166,.08)", padding:"8px 12px", borderRadius:6 }}>
             ℹ️ Entradas e Saídas são registradas pela aba Movimentações e atualizadas automaticamente aqui.
           </div>
+          {saveErr && <div style={{ color:T.red, fontSize:12, marginTop:10, background:"rgba(224,90,90,.1)", padding:"8px 12px", borderRadius:6 }}>{saveErr}</div>}
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:20 }}>
             <button className="btn-ghost" onClick={() => setModal(null)}>Cancelar</button>
-            <button className="btn-primary" onClick={save}>Salvar</button>
+            <button className="btn-primary" onClick={save} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
           </div>
         </Modal>
       )}
@@ -1080,38 +1363,48 @@ function Movimentacoes({ data, setData }) {
       .join(" ").toLowerCase().includes(search.toLowerCase())
   );
 
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
   const openNew = () => {
     setForm({ data: today(), tipo:"Entrada", documento:"", codigo_material:"", material:"", unidade:"", quantidade:"", valor_unit:"", obra_cc:"", responsavel:"", obs:"" });
-    setModal("new");
+    setModal("new"); setSaveErr("");
   };
 
-  const save = () => {
+  const save = async () => {
     const mat = data.materiais.find(m => m.codigo === form.codigo_material?.toUpperCase());
-    const novo = {
-      ...form,
-      id: form.id || Date.now(),
-      codigo_material: form.codigo_material?.toUpperCase(),
-      material: form.material || mat?.nome || "",
-      unidade: form.unidade || mat?.unidade || "",
-      valor_total: (parseFloat(form.quantidade)||0) * (parseFloat(form.valor_unit)||0),
-    };
-    if (modal === "new") {
-      setData(d => {
-        // atualizar estoque
-        const newEst = d.estoque.map(e => {
-          if (e.codigo !== novo.codigo_material) return e;
-          const isEntrada = novo.tipo === "Entrada" || novo.tipo === "Ajuste +";
-          const isSaida   = novo.tipo === "Saída Obra" || novo.tipo === "Saída Interna" || novo.tipo === "Ajuste -";
-          return {
-            ...e,
-            entradas: isEntrada ? (e.entradas||0) + (parseFloat(novo.quantidade)||0) : e.entradas,
-            saidas:   isSaida   ? (e.saidas||0)   + (parseFloat(novo.quantidade)||0) : e.saidas,
-          };
-        });
-        return { ...d, movimentacoes: [...d.movimentacoes, novo], estoque: newEst };
-      });
+    setSaving(true); setSaveErr("");
+    try {
+      const payload = {
+        data:            form.data || today(),
+        tipo:            form.tipo || "Entrada",
+        documento:       form.documento || "",
+        codigo_material: form.codigo_material?.toUpperCase() || "",
+        material:        form.material || mat?.nome || "",
+        unidade:         form.unidade || mat?.unidade || "",
+        quantidade:      parseFloat(form.quantidade) || 0,
+        valor_unit:      parseFloat(form.valor_unit) || 0,
+        obra_cc:         form.obra_cc || "",
+        responsavel:     form.responsavel || "",
+        obs:             form.obs || "",
+      };
+      await api.post("movimentacoes", payload);
+      // Recarregar movimentações e estoque do banco
+      const [movs, est] = await Promise.all([
+        api.get("movimentacoes","order=data.desc"),
+        api.get("estoque","order=codigo"),
+      ]);
+      setData(d => ({
+        ...d,
+        movimentacoes: movs.length ? movs : d.movimentacoes,
+        estoque:       est.length  ? est  : d.estoque,
+      }));
+      setModal(null);
+    } catch(e) {
+      setSaveErr(e.message || "Erro ao salvar.");
+    } finally {
+      setSaving(false);
     }
-    setModal(null);
   };
 
   const f = (k,v) => setForm(p => ({...p,[k]:v}));
@@ -1210,9 +1503,10 @@ function Movimentacoes({ data, setData }) {
           <div style={{ fontSize:11, marginTop:12, color:T.teal }}>
             ℹ️ Saída Obra e Saída Interna descontam do estoque automaticamente.
           </div>
+          {saveErr && <div style={{ color:T.red, fontSize:12, marginTop:10, background:"rgba(224,90,90,.1)", padding:"8px 12px", borderRadius:6 }}>{saveErr}</div>}
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:20 }}>
             <button className="btn-ghost" onClick={() => setModal(null)}>Cancelar</button>
-            <button className="btn-primary" onClick={save}>Salvar</button>
+            <button className="btn-primary" onClick={save} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
           </div>
         </Modal>
       )}
@@ -1231,15 +1525,57 @@ function Materiais({ data, setData }) {
   const filtered = data.materiais.filter(m =>
     [m.codigo, m.nome, m.aplicacao, m.unidade].join(" ").toLowerCase().includes(search.toLowerCase())
   );
-  const openNew  = () => { setForm({ ativo:true }); setModal("new"); };
-  const openEdit = row => { setForm({...row}); setModal(row); };
-  const save = () => {
-    const novo = { ...form, id: form.id || Date.now() };
-    if (modal === "new") setData(d => ({ ...d, materiais: [...d.materiais, novo] }));
-    else setData(d => ({ ...d, materiais: d.materiais.map(m => m.id === novo.id ? novo : m) }));
-    setModal(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  const reload = async () => {
+    try {
+      const mats = await api.get("materiais","order=codigo");
+      if (mats.length) setData(d => ({...d, materiais: mats}));
+    } catch {}
   };
-  const del = id => setData(d => ({ ...d, materiais: d.materiais.filter(m => m.id !== id) }));
+
+  const openNew  = () => { setForm({ ativo:true }); setModal("new"); setSaveErr(""); };
+  const openEdit = row => { setForm({...row}); setModal(row); setSaveErr(""); };
+
+  const save = async () => {
+    if (!form.codigo || !form.nome) { setSaveErr("Código e Nome são obrigatórios."); return; }
+    setSaving(true); setSaveErr("");
+    try {
+      const payload = {
+        codigo:         form.codigo?.toUpperCase(),
+        nome:           form.nome,
+        especificacao:  form.especificacao || "",
+        unidade:        form.unidade || "",
+        aplicacao:      form.aplicacao || "",
+        preco_alvo:     parseFloat(form.preco_alvo) || 0,
+        estoque_minimo: parseFloat(form.estoque_minimo) || 0,
+        ativo:          form.ativo !== false,
+      };
+      if (modal === "new") {
+        await api.post("materiais", payload);
+      } else {
+        await api.patch("materiais", form.id, payload);
+      }
+      await reload();
+      setModal(null);
+    } catch(e) {
+      setSaveErr(e.message || "Erro ao salvar. Verifique a conexão com o Supabase.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Excluir este material?")) return;
+    try {
+      await api.delete("materiais", id);
+      await reload();
+    } catch(e) {
+      alert("Erro ao excluir: " + e.message);
+    }
+  };
+
   const f = (k,v) => setForm(p => ({...p,[k]:v}));
 
   return (
@@ -1287,9 +1623,10 @@ function Materiais({ data, setData }) {
             <div><label>Preço Alvo (R$)</label><input type="number" step="0.01" value={form.preco_alvo||""} onChange={e=>f("preco_alvo",+e.target.value)} /></div>
             <div><label>Estoque Mínimo</label><input type="number" value={form.estoque_minimo||""} onChange={e=>f("estoque_minimo",+e.target.value)} /></div>
           </div>
+          {saveErr && <div style={{ color:T.red, fontSize:12, marginTop:10, background:"rgba(224,90,90,.1)", padding:"8px 12px", borderRadius:6 }}>{saveErr}</div>}
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:20 }}>
             <button className="btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
-            <button className="btn-primary" onClick={save}>Salvar</button>
+            <button className="btn-primary" onClick={save} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
           </div>
         </Modal>
       )}
@@ -1308,15 +1645,60 @@ function Fornecedores({ data, setData }) {
   const filtered = data.fornecedores.filter(f =>
     [f.codigo, f.razao_social, f.categoria, f.cidade_uf, f.status].join(" ").toLowerCase().includes(search.toLowerCase())
   );
-  const openNew  = () => { setForm({ status:"Ativo" }); setModal("new"); };
-  const openEdit = row => { setForm({...row}); setModal(row); };
-  const save = () => {
-    const novo = { ...form, id: form.id || Date.now() };
-    if (modal==="new") setData(d => ({ ...d, fornecedores: [...d.fornecedores, novo] }));
-    else setData(d => ({ ...d, fornecedores: d.fornecedores.map(f => f.id===novo.id ? novo : f) }));
-    setModal(null);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  const reload = async () => {
+    try {
+      const forns = await api.get("fornecedores","order=codigo");
+      if (forns.length) setData(d => ({...d, fornecedores: forns}));
+    } catch {}
   };
-  const del = id => setData(d => ({ ...d, fornecedores: d.fornecedores.filter(f => f.id !== id) }));
+
+  const openNew  = () => { setForm({ status:"Ativo" }); setModal("new"); setSaveErr(""); };
+  const openEdit = row => { setForm({...row}); setModal(row); setSaveErr(""); };
+
+  const save = async () => {
+    if (!form.codigo || !form.razao_social) { setSaveErr("Código e Razão Social são obrigatórios."); return; }
+    setSaving(true); setSaveErr("");
+    try {
+      const payload = {
+        codigo:        form.codigo?.toUpperCase(),
+        razao_social:  form.razao_social,
+        nome_fantasia: form.nome_fantasia || "",
+        cnpj:          form.cnpj || "",
+        contato:       form.contato || "",
+        telefone:      form.telefone || "",
+        email:         form.email || "",
+        cidade_uf:     form.cidade_uf || "",
+        categoria:     form.categoria || "",
+        prazo_medio:   parseInt(form.prazo_medio) || 30,
+        status:        form.status || "Ativo",
+      };
+      if (modal === "new") {
+        await api.post("fornecedores", payload);
+      } else {
+        await api.patch("fornecedores", form.id, payload);
+      }
+      await reload();
+      setModal(null);
+    } catch(e) {
+      setSaveErr(e.message || "Erro ao salvar. Verifique a conexão com o Supabase.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Excluir este fornecedor?")) return;
+    try {
+      await api.delete("fornecedores", id);
+      await reload();
+    } catch(e) {
+      alert("Erro ao excluir: " + e.message);
+    }
+  };
+
   const f = (k,v) => setForm(p => ({...p,[k]:v}));
 
   return (
@@ -1373,9 +1755,10 @@ function Fornecedores({ data, setData }) {
               </select>
             </div>
           </div>
+          {saveErr && <div style={{ color:T.red, fontSize:12, marginTop:10, background:"rgba(224,90,90,.1)", padding:"8px 12px", borderRadius:6 }}>{saveErr}</div>}
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:20 }}>
             <button className="btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
-            <button className="btn-primary" onClick={save}>Salvar</button>
+            <button className="btn-primary" onClick={save} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
           </div>
         </Modal>
       )}
